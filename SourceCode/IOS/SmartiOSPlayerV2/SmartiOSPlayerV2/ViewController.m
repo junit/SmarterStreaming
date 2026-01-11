@@ -6,7 +6,7 @@
 //  website: https://www.daniulive.com
 //
 //  Created by daniulive on 2016/01/03.
-//  Copyright © 2014~2019 daniulive. All rights reserved.
+//  Copyright © 2014~2020 daniulive. All rights reserved.
 //
 
 #import "ViewController.h"
@@ -35,7 +35,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     UIView          * _glView;
     Boolean         is_inited_player_;
     NSString        *playback_url_;             //拉流url
-    Boolean         is_half_screen_;
+    Boolean         is_part_screen_;
     Boolean         is_audio_only_;
     Boolean         is_fast_startup_;           //是否快速启动模式
     Boolean         is_low_latency_mode_;       //是否开启极速模式
@@ -47,8 +47,6 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     NSInteger       screen_height_;
     NSInteger       player_view_width_;
     NSInteger       player_view_height_;
-    NSInteger       stream_width_;              //视频宽
-    NSInteger       stream_height_;             //视频高
     
     Boolean         is_switch_url_;             //切换url flag
     Boolean         is_mute_;                   //静音flag
@@ -56,6 +54,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     
     UIButton        *muteButton;                //静音 取消静音
     UIButton        *switchUrlButton;           //切换url按钮
+    UIButton        *inputKeyIVButton;          //用于RTMP加密流播放时输入解密Key和IV解密向量信息
     UIButton        *playbackButton;            //播放按钮
     UIButton        *flipVerticalButton;        //垂直反转
     UIButton        *flipHorizontalButton;      //水平反转
@@ -73,6 +72,9 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     
     Boolean         is_playing_;                //是否播放状态
     Boolean         is_recording_;              //是否录像状态
+    
+    NSString        *encrypt_key_;              //RTMP解密Key
+    NSString        *encrypt_iv_;               //RTMP IV解密向量
 }
 
 - (void)viewDidLoad {
@@ -86,26 +88,18 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     screen_width_  = CGRectGetWidth([UIScreen mainScreen].bounds);
     screen_height_ = CGRectGetHeight([UIScreen mainScreen].bounds);
     
-    player_view_width_ = screen_width_;
-    player_view_height_ = screen_height_;
-    
-    stream_width_ = 480;
-    stream_height_ = 288;
-    
     //拉流url可以自定义
-    playback_url_ = @"rtmp://live.hkstv.hk.lxdns.com/live/hks1";
+    playback_url_ = @"rtmp://202.69.69.180:443/webcast/bshdlive-pc";
     
     //playback_url_ = @"rtsp://184.72.239.149/vod/mp4://BigBuckBunny_175k.mov";   //公网rtsp流，TCP模式的有audio
     
-    //playback_url_ = @"rtmp://player.daniulive.com:1935/hls/stream123";
-    
     is_audio_only_ = NO;
-    is_half_screen_ = YES;            //半屏播放, 只是为了效果展示
+    is_part_screen_ = YES;            //竖屏一部分屏幕播放, 只是为了效果展示
     
     is_fast_startup_ = YES;           //是否快速启动模式
     is_low_latency_mode_ = NO;        //是否开启极速模式
-    buffer_time_ = 100;               //buffer时间
-    is_hardware_decoder_ = NO;        //默认软解码
+    buffer_time_ = 100;                 //buffer时间
+    is_hardware_decoder_ = YES;       //默认硬解码
     is_rtsp_tcp_mode_ = NO;           //仅用于rtsp流 设置TCP传输模式 默认UDP模式
     
     is_flip_vertical_ = NO;           //垂直反转
@@ -119,10 +113,15 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     is_playing_ = NO;
     is_recording_ = NO;
     
+    encrypt_key_ = [NSString string];
+    encrypt_iv_ = [NSString string];
+    
     //用户可自定义显示view区域
-    if ( is_half_screen_ )
+    player_view_width_ = screen_width_;
+    
+    if ( is_part_screen_ )
     {
-        player_view_height_ = screen_width_*stream_height_/stream_width_;
+        player_view_height_ = screen_height_*2/5;
     }
     else
     {
@@ -137,10 +136,25 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     
     CGFloat lineWidth = playbackButton.frame.size.width * 0.12f;
     
+    //输入解密Key和IV向量按钮
+    inputKeyIVButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    inputKeyIVButton.frame = CGRectMake(45, screen_height_/2, 120, 80);
+    inputKeyIVButton.center = CGPointMake(self.view.frame.size.width / 6, inputKeyIVButton.frame.origin.y + inputKeyIVButton.frame.size.height / 2);
+    
+    inputKeyIVButton.layer.cornerRadius = inputKeyIVButton.frame.size.width / 2;
+    inputKeyIVButton.layer.borderColor = [UIColor greenColor].CGColor;
+    inputKeyIVButton.layer.borderWidth = lineWidth;
+    
+    [inputKeyIVButton setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
+    [inputKeyIVButton setTitle:@"设置解密Key" forState:UIControlStateNormal];
+    
+    [inputKeyIVButton addTarget:self action:@selector(InputKeyIVBtn:) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:inputKeyIVButton];
+    
     //播放按钮
     playbackButton = [UIButton buttonWithType:UIButtonTypeCustom];
     playbackButton.frame = CGRectMake(45, screen_height_/2, 120, 80);
-    playbackButton.center = CGPointMake(self.view.frame.size.width / 6, playbackButton.frame.origin.y + playbackButton.frame.size.height / 2);
+    playbackButton.center = CGPointMake(self.view.frame.size.width / 2, playbackButton.frame.origin.y + playbackButton.frame.size.height / 2);
     
     playbackButton.layer.cornerRadius = playbackButton.frame.size.width / 2;
     playbackButton.layer.borderColor = [UIColor greenColor].CGColor;
@@ -151,21 +165,6 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     
     [playbackButton addTarget:self action:@selector(playBtn:) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:playbackButton];
-    
-    //切换url按钮
-    switchUrlButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    switchUrlButton.frame = CGRectMake(45, screen_height_/2, 120, 80);
-    switchUrlButton.center = CGPointMake(self.view.frame.size.width / 2, switchUrlButton.frame.origin.y + switchUrlButton.frame.size.height / 2);
-    
-    switchUrlButton.layer.cornerRadius = switchUrlButton.frame.size.width / 2;
-    switchUrlButton.layer.borderColor = [UIColor greenColor].CGColor;
-    switchUrlButton.layer.borderWidth = lineWidth;
-    
-    [switchUrlButton setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
-    [switchUrlButton setTitle:@"切换URL2" forState:UIControlStateNormal];
-    
-    [switchUrlButton addTarget:self action:@selector(SwitchUrlBtn:) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:switchUrlButton];
     
     //静音按钮
     muteButton = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -277,10 +276,25 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     [saveImageButton addTarget:self action:@selector(SaveImageBtn:) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:saveImageButton];
     
+    //切换url按钮
+    switchUrlButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    switchUrlButton.frame = CGRectMake(45, screen_height_/2 + 200, 120, 80);
+    switchUrlButton.center = CGPointMake(self.view.frame.size.width / 6, switchUrlButton.frame.origin.y + switchUrlButton.frame.size.height / 2);
+    
+    switchUrlButton.layer.cornerRadius = switchUrlButton.frame.size.width / 2;
+    switchUrlButton.layer.borderColor = [UIColor greenColor].CGColor;
+    switchUrlButton.layer.borderWidth = lineWidth;
+    
+    [switchUrlButton setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
+    [switchUrlButton setTitle:@"切换URL2" forState:UIControlStateNormal];
+    
+    [switchUrlButton addTarget:self action:@selector(SwitchUrlBtn:) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:switchUrlButton];
+    
     //退出按钮
     quitButton = [UIButton buttonWithType:UIButtonTypeCustom];
     quitButton.frame = CGRectMake(45, screen_height_/2 + 200, 120, 80);
-    quitButton.center = CGPointMake(self.view.frame.size.width / 6, quitButton.frame.origin.y + quitButton.frame.size.height / 2);
+    quitButton.center = CGPointMake(self.view.frame.size.width / 2, quitButton.frame.origin.y + quitButton.frame.size.height / 2);
     
     quitButton.layer.cornerRadius = quitButton.frame.size.width / 2;
     quitButton.layer.borderColor = [UIColor greenColor].CGColor;
@@ -344,54 +358,68 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
 //播放端接口封装
 - (void)orientChange:(NSNotification *)noti
 {
-    
     UIDeviceOrientation  orient = [UIDevice currentDevice].orientation;
     
-    NSLog(@"[orgientChange] orient:%ld" ,(long)orient);
+    NSLog(@"[orgientChange] orient:%ld screen_width: %ld screen_height:%ld" ,(long)orient, (long)screen_width_, (long)screen_height_);
     
-    Boolean isPortrait = false;
+    CGRect f = _glView.frame;
     
     switch (orient)
     {
         case UIDeviceOrientationPortrait:
-            isPortrait = true;
-            break;
+        {
+            NSLog(@"[orgientChange] UIDeviceOrientationPortrait");
+            f.origin.x = 0;
+            f.origin.y = 50;
+            f.size.width = screen_width_;
+            f.size.height = screen_height_*2/5;
+        }
+        break;
         case UIDeviceOrientationLandscapeLeft:
-            isPortrait = false;
-            break;
+        {
+            NSLog(@"[orgientChange] UIDeviceOrientationLandscapeLeft");
+            
+            f.origin.x = 0;
+            f.origin.y = 0;
+            f.size.width = screen_height_;
+            f.size.height = screen_width_;
+        }
+        break;
         case UIDeviceOrientationPortraitUpsideDown:
-            isPortrait = false;
-            break;
+        {
+            NSLog(@"[orgientChange] UIDeviceOrientationPortraitUpsideDown");
+            
+            f.origin.x = 0;
+            f.origin.y = 0;
+            f.size.width = screen_height_;
+            f.size.height = screen_width_;
+        }
+        break;
         case UIDeviceOrientationLandscapeRight:
-            isPortrait = false;
-            break;
+        {
+            NSLog(@"[orgientChange] UIDeviceOrientationLandscapeRight");
+            
+            f.origin.x = 0;
+            f.origin.y = 0;
+            f.size.width = screen_height_;
+            f.size.height = screen_width_;
+        }
+        break;
         case UIDeviceOrientationFaceUp:
-            isPortrait = true;
-            break;
+        {
+            NSLog(@"[orgientChange] UIDeviceOrientationFaceUp");
+        }
+        break;
         case UIDeviceOrientationFaceDown:
-            isPortrait = true;
-            break;
+        {
+            NSLog(@"[orgientChange] UIDeviceOrientationFaceDown");
+        }
+        break;
             
         default:
             break;
     }
-    
-    CGRect f = _glView.frame;
-    
-    if (isPortrait) {
-        f.origin.x = 0;
-        f.origin.y = 100;
-        f.size.width = screen_width_;
-        f.size.height = screen_width_*stream_height_/stream_width_;
-    }
-    else
-    {
-        f.origin.x = 0;
-        f.origin.y = 0;
-        f.size.width = screen_height_;
-        f.size.height = screen_width_;
-    }
-    
+
     _glView.frame = f;
 }
 
@@ -417,6 +445,34 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     }
 }
 
+- (void)InputKeyIVBtn:(id)sender {
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"提示" message:@"如RTMP加密流，请输入解密Key和IV" preferredStyle:UIAlertControllerStyleAlert];
+
+    [alertController addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        
+        UITextField *keyTextField = alertController.textFields.firstObject;
+        encrypt_key_ = keyTextField.text;
+        
+        UITextField *ivTextField = alertController.textFields.lastObject;
+        encrypt_iv_ = ivTextField.text;
+        
+        NSLog(@"key: %@，iv: %@",encrypt_key_, encrypt_iv_);
+        
+    }]];
+    
+    [alertController addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleDefault handler:nil]];
+    
+    [alertController addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
+        textField.placeholder = @"请输入RTMP解密Key(16/24/32字节)";
+    }];
+
+    [alertController addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
+        textField.placeholder = @"请输入RTMP IV解密向量(16字节，如推送端未设置，无需输入)";
+    }];
+    
+    [self presentViewController:alertController animated:true completion:nil];
+}
+
 - (void)MuteBtn:(id)sender {
     if ( _smart_player_sdk != nil )
     {
@@ -430,7 +486,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
         {
             [muteButton setTitle:@"实时静音" forState:UIControlStateNormal];
         }
-        
+
         [_smart_player_sdk SmartPlayerSetMute:is_mute_];
     }
 }
@@ -625,7 +681,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     }
 }
 
-- (void)SaveImageBtn:(id)sender {
+- (void)SaveImageBtn:(UIButton *)button {
     if ( _smart_player_sdk != nil )
     {
         //设置快照目录
@@ -708,7 +764,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     }
     
     if (playback_url_.length == 0) {
-        NSLog(@"_streamUrl with nil..");
+        NSLog(@"playback url is nil..");
         return false;
     }
     
@@ -717,7 +773,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
         _smart_player_sdk.delegate = self;
         NSLog(@"SmartPlayerSDK _player.delegate:%@", _smart_player_sdk);
     }
-    
+        
     NSInteger initRet = [_smart_player_sdk SmartPlayerInitPlayer];
     if ( initRet != DANIULIVE_RETURN_OK )
     {
@@ -757,7 +813,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     
     //如需查看实时流量信息，可打开以下接口
     NSInteger is_report = 1;
-    NSInteger report_interval = 5;
+    NSInteger report_interval = 3;
     [_smart_player_sdk SmartPlayerSetReportDownloadSpeed:is_report report_interval:report_interval];
     
     //录像端音频，是否转AAC后保存
@@ -771,6 +827,58 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     //录制MP4文件 是否录制音频
     NSInteger is_record_audio = 1;
     [_smart_player_sdk SmartPlayerSetRecorderAudio:is_record_audio];
+    
+    NSInteger key_length = [encrypt_key_ length];
+    
+    if(key_length > 0)
+    {
+        int key_len = 16;
+        
+        if (key_length > 16 && key_length <= 24) {
+            key_len = 24;
+        } else if (key_length > 24) {
+            key_len = 32;
+        }
+        
+        unsigned char key[32];
+        memset(key, 0, 32);
+        
+        NSData* key_data = [encrypt_key_ dataUsingEncoding:NSUTF8StringEncoding];
+  
+        NSInteger copy_key_len = key_length < key_len ? key_length : key_len;
+        
+        Byte *copy_key_data = (Byte *)[key_data bytes];
+        
+        for(int i=0;i<copy_key_len;i++)
+        {
+            key[i] = copy_key_data[i];
+        }
+        
+        [_smart_player_sdk SmartPlayerSetKey:key key_size:key_len];
+    }
+    
+    NSInteger iv_length = [encrypt_iv_ length];
+    
+    if(iv_length > 0)
+    {
+        int iv_len = 16;
+        
+        unsigned char iv[16];
+        memset(iv, 0, 16);
+        
+        NSData* iv_data = [encrypt_iv_ dataUsingEncoding:NSUTF8StringEncoding];
+        
+        NSInteger copy_iv_len = iv_length < iv_len ? iv_length : iv_len;
+        
+        Byte *copy_iv_data = (Byte *)[iv_data bytes];
+        
+        for(int i=0;i<copy_iv_len;i++)
+        {
+            iv[i] = copy_iv_data[i];
+        }
+        
+        [_smart_player_sdk SmartPlayerSetDecryptionIV:iv iv_size:iv_len];
+    }
     
     is_inited_player_ = YES;
     
@@ -788,6 +896,10 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
         return false;
     }
 
+    //设置视频画面的填充模式，如填充整个view、等比例填充view
+    NSInteger render_scale_mode = 1;
+    [_smart_player_sdk SmartPlayerSetRenderScaleMode:render_scale_mode];
+    
     //设置视频view旋转角度
     [_smart_player_sdk SmartPlayerSetRotation:rotate_degrees_];
     
@@ -800,7 +912,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     else
     {
         //如果只需外部回调YUV数据，自己绘制，无需创建view和设置view到SDK
-        _glView = (__bridge UIView *)([SmartPlayerSDK SmartPlayerCreatePlayView:0 y:100 width:player_view_width_ height:player_view_height_]);
+        _glView = (__bridge UIView *)([SmartPlayerSDK SmartPlayerCreatePlayView:0 y:50 width:player_view_width_ height:player_view_height_]);
         
         if (_glView == nil ) {
             NSLog(@"CreatePlayView failed..");
@@ -928,11 +1040,8 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     }
     else if (nID == EVENT_DANIULIVE_ERC_PLAYER_RESOLUTION_INFO)
     {
-        stream_width_ = (NSInteger)param1;
-        stream_height_ = (NSInteger)param2;
-        
-        NSString *str_w = [NSString stringWithFormat:@"%ld", (long)stream_width_];
-        NSString *str_h = [NSString stringWithFormat:@"%ld", (long)stream_height_];
+        NSString *str_w = [NSString stringWithFormat:@"%ld", (long)param1];
+        NSString *str_h = [NSString stringWithFormat:@"%ld", (long)param2];
         
         lable = @"[event]视频解码分辨率信息: ";
         player_event = [lable stringByAppendingFormat:@"%@*%@", str_w, str_h];
@@ -977,7 +1086,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     }
     else if (nID == EVENT_DANIULIVE_ERC_PLAYER_START_BUFFERING)
     {
-        NSLog(@"[event]开始buffer..");
+        //NSLog(@"[event]开始buffer..");
     }
     else if (nID == EVENT_DANIULIVE_ERC_PLAYER_BUFFERING)
     {
@@ -985,7 +1094,7 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
     }
     else if (nID == EVENT_DANIULIVE_ERC_PLAYER_STOP_BUFFERING)
     {
-        NSLog(@"[event]停止buffer..");
+        //NSLog(@"[event]停止buffer..");
     }
     else if (nID == EVENT_DANIULIVE_ERC_PLAYER_DOWNLOAD_SPEED)
     {
@@ -1010,13 +1119,24 @@ typedef enum NT_SDK_E_H264_SEI_USER_DATA_TYPE{
             });
         });
     }
+    else if(nID == EVENT_DANIULIVE_ERC_PLAYER_NEED_KEY)
+    {
+        player_event = @"[event]RTMP加密流，请设置播放需要的Key..";
+    }
+    else if(nID == EVENT_DANIULIVE_ERC_PLAYER_KEY_ERROR)
+    {
+        player_event = @"[event]RTMP加密流，Key错误，请重新设置..";
+    }
     else
         NSLog(@"[event]nID:%lx", (long)nID);
     
     NSString* player_event_tag = @"当前状态:";
     NSString* event = [player_event_tag stringByAppendingFormat:@"%@", player_event];
     
-    NSLog(@"%@", event);
+    if ( player_event.length != 0)
+    {
+        NSLog(@"%@", event);
+    }
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             dispatch_async(dispatch_get_main_queue(), ^{

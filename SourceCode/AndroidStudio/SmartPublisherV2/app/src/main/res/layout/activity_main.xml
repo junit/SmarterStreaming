@@ -54,6 +54,7 @@
                     android:id="@+id/watermarkSelctor"
                     android:layout_width="fill_parent"
                     android:layout_height="wrap_content" />
+
             </LinearLayout>
 
             <LinearLayout
@@ -72,10 +73,10 @@
                     android:layout_height="wrap_content" />
 
                 <Button
-                    android:id="@+id/button_recorder_mgr"
+                    android:id="@+id/button_input_key"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="录像管理" />
+                    android:text="音视频加密Key" />
             </LinearLayout>
 
             <LinearLayout
@@ -89,11 +90,15 @@
                     android:layout_height="wrap_content"
                     android:text="实时静音" />
 
-                <Button
-                    android:id="@+id/button_mirror"
+                <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="已关闭镜像" />
+                    android:text="音量" />
+
+                <Spinner
+                    android:id="@+id/in_audio_volume_selector"
+                    android:layout_width="fill_parent"
+                    android:layout_height="match_parent" />
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -103,7 +108,8 @@
                 <Spinner
                     android:id="@+id/sw_video_encoder_speed_selector"
                     android:layout_width="fill_parent"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="match_parent" />
+
             </LinearLayout>
 
             <LinearLayout
@@ -165,10 +171,10 @@
                     android:text="推送RTMP" />
 
                 <Button
-                    android:id="@+id/button_start_recorder"
+                    android:id="@+id/button_push_rtsp"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="实时录像" />
+                    android:text="推送RTSP" />
 
                 <Button
                     android:id="@+id/button_capture_image"
@@ -215,10 +221,28 @@
                 android:orientation="horizontal">"
 
                 <Button
-                    android:id="@+id/button_push_rtsp"
+                    android:id="@+id/button_start_recorder"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="推送RTSP" />
+                    android:text="实时录像" />
+
+                <Button
+                    android:id="@+id/button_pause_recorder"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="暂停录像" />
+
+                <Button
+                    android:id="@+id/button_recorder_mgr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="录像管理" />
+
+                <Button
+                    android:id="@+id/button_mirror"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="已关闭镜像" />
 
             </LinearLayout>
 

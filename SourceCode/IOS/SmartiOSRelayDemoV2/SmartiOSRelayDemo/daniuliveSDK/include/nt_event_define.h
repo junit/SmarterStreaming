@@ -6,7 +6,7 @@
 //  website: https://www.daniulive.com
 //
 //  Created by daniulive on 16/3/24.
-//  Copyright © 2014~2019 daniulive. All rights reserved.
+//  Copyright © 2014~2020 daniulive. All rights reserved.
 //
 
 #ifndef NT_EVENT_DEFINE_H_
@@ -35,6 +35,8 @@ extern "C"{
         EVENT_DANIULIVE_ERC_PLAYER_SWITCH_URL                   = EVENT_DANIULIVE_PLAYER_SDK | 0x9,	/*切换播放url*/
         EVENT_DANIULIVE_ERC_PLAYER_CAPTURE_IMAGE                = EVENT_DANIULIVE_PLAYER_SDK | 0xA,	/*截取快照*/
         EVENT_DANIULIVE_ERC_PLAYER_RTSP_STATUS_CODE             = EVENT_DANIULIVE_PLAYER_SDK | 0xB,  /*rtsp status code上报, 目前只上报401, param1表示status code*/
+        EVENT_DANIULIVE_ERC_PLAYER_NEED_KEY                     = EVENT_DANIULIVE_PLAYER_SDK | 0xC,    /*需要输入解密key才能播放*/
+        EVENT_DANIULIVE_ERC_PLAYER_KEY_ERROR                    = EVENT_DANIULIVE_PLAYER_SDK | 0xD,    /*解密key不正确*/
         /* 录像相关*/
         EVENT_DANIULIVE_ERC_PLAYER_RECORDER_START_NEW_FILE      = EVENT_DANIULIVE_PLAYER_SDK | 0x21,    /*录像写入新文件*/
         EVENT_DANIULIVE_ERC_PLAYER_ONE_RECORDER_FILE_FINISHED   = EVENT_DANIULIVE_PLAYER_SDK | 0x22,    /*一个录像文件完成*/
@@ -72,7 +74,8 @@ extern "C"{
 	typedef enum DNErrorCode{
 	    DANIULIVE_RETURN_OK = 0,        //!< 返回OK
 	    DANIULIVE_RETURN_ERROR,         //!< 返回错误
-	    DANIULIVE_RETURN_SDK_EXPIRED    //!< SDK过期
+	    DANIULIVE_RETURN_SDK_EXPIRED,   //!< SDK过期
+        DANIULIVE_RETURN_NEED_RETRY     //!< 提示重试
 	}DNErrorCode;
     
 #ifdef __cplusplus

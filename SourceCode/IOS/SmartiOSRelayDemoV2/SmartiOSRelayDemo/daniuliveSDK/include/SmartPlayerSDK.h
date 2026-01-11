@@ -6,7 +6,7 @@
 //  website: https://www.daniulive.com
 //
 //  Created by daniulive on 16/01/03.
-//  Copyright © 2014~2019 daniulive. All rights reserved.
+//  Copyright © 2014~2020 daniulive. All rights reserved.
 //
 
 #import <Foundation/Foundation.h>
@@ -49,6 +49,15 @@
  * @return {0} if successful
  */
 - (NSInteger)SmartPlayerSetEchoCancellationMode:(NSInteger)mode;
+
+/**
+ * 设置视频画面的填充模式，如填充整个view、等比例填充view，如不设置，默认填充整个view
+ *
+ * @param renderScaleMode 0: 填充整个view; 1: 等比例填充view，默认值是0
+ *
+ * @return {0} if successful
+ */
+- (NSInteger)SmartPlayerSetRenderScaleMode:(NSInteger)renderScaleMode;
 
 /**
  * 创建播放view
@@ -229,6 +238,28 @@
 - (NSInteger)SmartPlayerSetPlayURL:(NSString *)url;
 
 /**
+ * 设置解密key，目前只用来解密rtmp加密流
+ *
+ * @param key 解密密钥
+ *
+ * @param key_size 密钥长度
+ *
+ * @return {0} if successful
+ */
+- (NSInteger)SmartPlayerSetKey:(unsigned char*)key key_size:(NSInteger)key_size;
+
+/**
+ * 设置解密向量，目前只用来解密rtmp加密流
+ *
+ * @param iv 解密向量
+ *
+ * @param iv_size 向量长度
+ *
+ * @return {0} if successful
+ */
+- (NSInteger)SmartPlayerSetDecryptionIV:(unsigned char*)iv iv_size:(NSInteger)iv_size;
+
+/**
  * Set if needs to save image during playback stream(设置是否启用快照功能)
  *
  * @param is_save_image 1 通过SmartPlayerSaveCurImage()保存当前image, 0: 不保存
@@ -377,6 +408,19 @@
  * @return {0} if successful
  */
 - (NSInteger) SmartPlayerUnInitPlayer;
+
+/**
+ * 设置player授权Key
+ *
+ * 如需设置授权Key, 请确保在SmartPlayerInitPlayer之前调用!
+ *
+ * reserve1 保留字段，请传0
+ *
+ * reserve2 保留字段，请传 nil
+ *
+ * @return {0} if successful
+ */
+- (NSInteger)SmartPlayerSetSDKClientKey:(NSString*)in_cid in_key:(NSString*)in_key reserve1:(NSInteger)reserve1 reserve2:(void*)reserve2;
 
 /**
  *  获取当前sdk的版本号

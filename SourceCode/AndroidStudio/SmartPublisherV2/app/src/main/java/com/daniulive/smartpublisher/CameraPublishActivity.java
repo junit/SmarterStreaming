@@ -46,6 +46,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.hardware.Camera.AutoFocusCallback;
@@ -54,6 +55,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 
 import java.io.ByteArrayOutputStream;
+import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -112,6 +114,7 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
     private Spinner swVideoEncoderProfileSelector;
     private int sw_video_encoder_profile = 1;    //default with baseline profile
 
+    private Button btnInputKey;       //如需音视频加密，可设置加密的Key(16/24/32字节)和IV(16字节)，IV如不输入，用默认值，播放端，需要输入推送端设置的加密Key和IV方可正常播放
     private Button btnRecorderMgr;    //录像管理按钮
     private Button btnNoiseSuppression;    //噪音抑制按钮
     private Button btnAGC; //自动增益补偿按钮
@@ -120,6 +123,8 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
     private Button btnMirror; //实时镜像按钮
 
     private Spinner swVideoEncoderSpeedSelector;
+
+    private Spinner in_audio_volume_selector_;
 
     /* 推送类型选择
      * 0: 视频软编码(H.264)
@@ -136,6 +141,7 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
     private Button btnStartPush;    //RTMP推送按钮
     private Button btnStartRecorder;    //录像按钮
+    private Button btnPauseRecorder;    //暂停/恢复录像
     private Button btnCaptureImage;    //快照按钮
 
     private Button btnRtspService;    //启动、停止RTSP服务按钮
@@ -153,6 +159,7 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
     private boolean mPreviewRunning = false; //priview状态
     private boolean isPushingRtmp = false;    //RTMP推送状态
     private boolean isRecording = false;    //录像状态
+    private boolean isPauseRecording = true;    //录像暂停、恢复录像
     private boolean isRTSPServiceRunning = false;    //RTSP服务状态
     private boolean isRTSPPublisherRunning = false; //RTSP流发布状态
     private boolean isPushingRtsp = false;     //RTSP推送状态
@@ -188,11 +195,17 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
     private boolean is_agc = false;
     private boolean is_speex = false;
     private boolean is_mute = false;
+
+    private float in_audio_volume_ = 1.0f;
+
     private boolean is_mirror = false;
     private int sw_video_encoder_speed = 3;
     private boolean is_sw_vbr_mode = true;
 
     private String imageSavePath;
+
+    private String encrypt_key = "";
+    private String encrypt_iv = "";
 
     private static final int PUBLISHER_EVENT_MSG = 1;
     private static final int PUBLISHER_USER_DATA_MSG = 2;
@@ -387,6 +400,9 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
         });
         //video编码profile选择----------
 
+        btnInputKey = (Button) findViewById(R.id.button_input_key);
+        btnInputKey.setOnClickListener(new ButtonInputKeyListener());
+
         btnRecorderMgr = (Button) findViewById(R.id.button_recorder_mgr);
         btnRecorderMgr.setOnClickListener(new ButtonRecorderMangerListener());
 
@@ -401,6 +417,41 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
         btnMute = (Button) findViewById(R.id.button_mute);
         btnMute.setOnClickListener(new ButtonMuteListener());
+
+        in_audio_volume_selector_ = (Spinner) findViewById(R.id.in_audio_volume_selector);
+
+        final String[] in_audio_volume_sel = new String[]{ "0", "0.2", "0.5", "0.8","1", "1.5",  "2",  "2.5",  "3",  "3.5",  "4",  "4.5",  "5"};
+        ArrayAdapter<String> adapter_in_audio_volume = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, in_audio_volume_sel);
+
+        adapter_in_audio_volume.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        in_audio_volume_selector_.setAdapter(adapter_in_audio_volume);
+
+        in_audio_volume_selector_.setSelection(4, true);
+
+        in_audio_volume_selector_.setOnItemSelectedListener(new OnItemSelectedListener() {
+
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view,
+                                       int position, long id) {
+                Log.i(TAG, "Currently audio volume choosing: " + in_audio_volume_sel[position]);
+
+                in_audio_volume_ = Float.parseFloat(in_audio_volume_sel[position]);
+
+                Log.i(TAG, "Choose audio volume=" + in_audio_volume_);
+
+                if(isPushingRtmp || isRecording || isRTSPPublisherRunning || isPushingRtsp)  {
+                    if (libPublisher != null && publisherHandle != 0) {
+                        libPublisher.SmartPublisherSetInputAudioVolume(publisherHandle, 0 , in_audio_volume_);
+                    }
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
 
         btnMirror = (Button) findViewById(R.id.button_mirror);
         btnMirror.setOnClickListener(new ButtonMirrorListener());
@@ -485,6 +536,9 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
         btnStartRecorder = (Button) findViewById(R.id.button_start_recorder);
         btnStartRecorder.setOnClickListener(new ButtonStartRecorderListener());
+
+        btnPauseRecorder = (Button) findViewById(R.id.button_pause_recorder);
+        btnPauseRecorder.setOnClickListener(new ButtonPauseRecorderListener());
 
         btnCaptureImage = (Button) findViewById(R.id.button_capture_image);
         btnCaptureImage.setOnClickListener(new ButtonCaptureImageListener());
@@ -580,14 +634,29 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
     class NTAudioRecordV2CallbackImpl implements NTAudioRecordV2Callback {
         @Override
         public void onNTAudioRecordV2Frame(ByteBuffer data, int size, int sampleRate, int channel, int per_channel_sample_number) {
-    		 /*
-    		 Log.i(TAG, "onNTAudioRecordV2Frame size=" + size + " sampleRate=" + sampleRate + " channel=" + channel
+
+    		 /*Log.i(TAG, "onNTAudioRecordV2Frame size=" + size + " sampleRate=" + sampleRate + " channel=" + channel
     				 + " per_channel_sample_number=" + per_channel_sample_number);
-    		 
     		 */
 
+
             if (publisherHandle != 0) {
-                libPublisher.SmartPublisherOnPCMData(publisherHandle, data, size, sampleRate, channel, per_channel_sample_number);
+               libPublisher.SmartPublisherOnPCMData(publisherHandle, data, size, sampleRate, channel, per_channel_sample_number);
+
+               //libPublisher.SmartPublisherOnPCMDataV2(publisherHandle, data, 0, size, sampleRate, channel, per_channel_sample_number);
+
+               /* data.rewind();
+               java.nio.ByteOrder old_order = data.order();
+               data.order(java.nio.ByteOrder.nativeOrder());
+               java.nio.ShortBuffer short_buffer = data.asShortBuffer();
+               data.order(old_order);
+
+               short[] short_array =  new short[short_buffer.remaining()];
+               short_buffer.get(short_array);
+
+               libPublisher.SmartPublisherOnPCMShortArray(publisherHandle, short_array, 0, short_array.length, sampleRate, channel, per_channel_sample_number);
+               */
+
             }
         }
     }
@@ -610,6 +679,8 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
             audioRecord_.AddCallback(audioRecordCallback_);
 
+            //audioRecord_.Start(44100,  1);
+
             audioRecord_.Start();
 
             Log.i(TAG, "CheckInitAudioRecorder call audioRecord_.start()---...");
@@ -622,11 +693,10 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
         }
     }
 
-    //Configure recorder related function.
-    void ConfigRecorderFuntion(boolean isNeedLocalRecorder) {
+    void ConfigRecorderParam() {
         if (libPublisher != null && publisherHandle != 0) {
-            if (isNeedLocalRecorder) {
                 if (recDir != null && !recDir.isEmpty()) {
+
                     int ret = libPublisher.SmartPublisherCreateFileDirectory(recDir);
                     if (0 == ret) {
                         if (0 != libPublisher.SmartPublisherSetRecorderDirectory(publisherHandle, recDir)) {
@@ -634,10 +704,9 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
                             return;
                         }
 
-                        if (0 != libPublisher.SmartPublisherSetRecorder(publisherHandle, 1)) {
-                            Log.e(TAG, "SmartPublisherSetRecorder failed.");
-                            return;
-                        }
+                        // 更细粒度控制录像的, 一般情况无需调用
+                        //libPublisher.SmartPublisherSetRecorderAudio(publisherHandle, 0);
+                       //libPublisher.SmartPublisherSetRecorderVideo(publisherHandle, 0);
 
                         if (0 != libPublisher.SmartPublisherSetRecorderFileMaxSize(publisherHandle, 200)) {
                             Log.e(TAG, "SmartPublisherSetRecorderFileMaxSize failed.");
@@ -648,11 +717,43 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
                         Log.e(TAG, "Create record dir failed, path:" + recDir);
                     }
                 }
-            } else {
-                if (0 != libPublisher.SmartPublisherSetRecorder(publisherHandle, 0)) {
-                    Log.e(TAG, "SmartPublisherSetRecorder failed.");
-                }
-            }
+        }
+    }
+
+    private void PopInputKeyDialog() {
+        final EditText inputKeyTxt = new EditText(this);
+        inputKeyTxt.setFocusable(true);
+        inputKeyTxt.setHint("请输入RTMP加密Key");
+        inputKeyTxt.setText("");
+
+        final EditText inputIVTxt = new EditText(this);
+        inputIVTxt.setFocusable(true);
+        inputIVTxt.setHint("请输入RTMP IV加密向量(可选，如不输入用默认值)");
+        inputIVTxt.setText("");
+
+        AlertDialog.Builder builderKey = new AlertDialog.Builder(this);
+        builderKey.setTitle("请输入加密Key(16/24/32字节)和IV加密向量(16字节)");
+
+        LinearLayout layout=new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.addView(inputKeyTxt);
+        layout.addView(inputIVTxt);
+        builderKey.setView(layout);
+
+        builderKey.setPositiveButton("确认",
+                new DialogInterface.OnClickListener() {
+
+                    public void onClick(DialogInterface dialog, int which) {
+                        encrypt_key = inputKeyTxt.getText().toString();
+                        encrypt_iv = inputIVTxt.getText().toString();
+                    }
+                });
+        builderKey.show();
+    }
+
+    class ButtonInputKeyListener implements OnClickListener {
+        public void onClick(View v) {
+            PopInputKeyDialog();
         }
     }
 
@@ -911,6 +1012,7 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
     }
 
     private void ConfigControlEnable(boolean isEnable) {
+        btnInputKey.setEnabled(isEnable);
         btnRecorderMgr.setEnabled(isEnable);
         videoEncodeTypeSelector.setEnabled(isEnable);
         btnBitrateControl.setEnabled(isEnable);
@@ -1019,6 +1121,10 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
         if (!is_speex) {
             // set AAC encoder
             libPublisher.SmartPublisherSetAudioCodecType(publisherHandle, 1);
+
+            // set aac bit-rate
+           //libPublisher.SmartPublisherSetAudioBitRate(publisherHandle, 128);
+
         } else {
             // set Speex encoder
             libPublisher.SmartPublisherSetAudioCodecType(publisherHandle, 2);
@@ -1029,6 +1135,8 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
                 : 0);
 
         libPublisher.SmartPublisherSetAGC(publisherHandle, is_agc ? 1 : 0);
+
+        libPublisher.SmartPublisherSetInputAudioVolume(publisherHandle, 0 , in_audio_volume_);
 
         // libPublisher.SmartPublisherSetClippingMode(publisherHandle, 0);
 
@@ -1062,11 +1170,10 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
                 btnStartPush.setText("推送RTMP");
                 isPushingRtmp = false;
-
                 return;
             }
 
-            Log.i(TAG, "onClick start push..");
+            Log.i(TAG, "onClick start push rtmp..");
 
             if (libPublisher == null)
                 return;
@@ -1089,6 +1196,92 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
             if (libPublisher.SmartPublisherSetURL(publisherHandle, publishURL) != 0) {
                 Log.e(TAG, "Failed to set publish stream URL..");
+            }
+
+            if(encrypt_key != null && !encrypt_key.isEmpty()) {
+                Log.i(TAG, "encrypt_key:" + encrypt_key);
+
+                int is_encrypt_video = 1;
+                int is_encrypt_audio = 1;
+
+                if (pushType == 1)
+                {
+                    is_encrypt_video = 0;
+                }
+                else if (pushType == 2)
+                {
+                    is_encrypt_audio = 0;
+                }
+
+                libPublisher.SetRtmpEncryptionOption(publisherHandle, publishURL, is_encrypt_video, is_encrypt_audio);
+
+                //加密算法可自行设置
+                int encryption_algorithm = 1;
+                libPublisher.SetRtmpEncryptionAlgorithm(publisherHandle, publishURL, encryption_algorithm);
+
+                int key_len = 16;
+
+                if (encrypt_key.length() > 16 && encrypt_key.length() <= 24) {
+                    key_len = 24;
+                } else if (encrypt_key.length() > 24) {
+                    key_len = 32;
+                }
+
+                byte[] key = new byte[key_len];
+
+                for (int i = 0; i < key_len; i++) {
+                    key[i] = 0;
+                }
+
+                try {
+                    byte[] key_utf8 = encrypt_key.getBytes("UTF-8");
+
+                    int copy_len = key_utf8.length < key_len ? key_utf8.length : key_len;
+
+                    for (int i = 0; i < copy_len; ++i) {
+                        key[i] = key_utf8[i];
+                    }
+
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+
+                int ret = libPublisher.SetRtmpEncryptionKey(publisherHandle, publishURL, key, key.length);
+
+                if(ret != 0)
+                {
+                    Log.e(TAG, "Call SmartPublisherSetRtmpEncryptionKey failed, errorID: " + ret);
+                }
+            }
+
+            if(encrypt_iv != null && !encrypt_iv.isEmpty()) {
+                int iv_len = 16;
+
+                byte[] iv = new byte[iv_len];
+
+                for (int i = 0; i < iv_len; i++) {
+                    iv[i] = 0;
+                }
+
+                try {
+                    byte[] iv_utf8 = encrypt_iv.getBytes("UTF-8");
+
+                    int copy_len = iv_utf8.length < iv_len ? iv_utf8.length : iv_len;
+
+                    for (int i = 0; i < copy_len; ++i) {
+                        iv[i] = iv_utf8[i];
+                    }
+
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+
+                int ret = libPublisher.SetRtmpEncryptionIV(publisherHandle, publishURL, iv, iv.length);
+
+                if(ret != 0)
+                {
+                    Log.e(TAG, "Call SetRtmpEncryptionIV failed, errorID: " + ret);
+                }
             }
 
             int startRet = libPublisher.SmartPublisherStartPublisher(publisherHandle);
@@ -1127,6 +1320,10 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
                 btnStartRecorder.setText("实时录像");
                 isRecording = false;
 
+                btnPauseRecorder.setText("暂停录像");
+                btnPauseRecorder.setEnabled(false);
+                isPauseRecording = true;
+
                 return;
             }
 
@@ -1139,7 +1336,7 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
                 InitAndSetConfig();
             }
 
-            ConfigRecorderFuntion(true);
+            ConfigRecorderParam();
 
             int startRet = libPublisher.SmartPublisherStartRecorder(publisherHandle);
             if (startRet != 0) {
@@ -1159,6 +1356,53 @@ public class CameraPublishActivity extends Activity implements Callback, Preview
 
             btnStartRecorder.setText("停止录像");
             isRecording = true;
+
+            btnPauseRecorder.setEnabled(true);
+            isPauseRecording = true;
+        }
+    }
+
+    class ButtonPauseRecorderListener implements OnClickListener {
+        public void onClick(View v) {
+            if (isRecording) {
+
+                if(isPauseRecording)
+                {
+                    int ret = libPublisher.SmartPublisherPauseRecorder(publisherHandle, 1);
+
+                    if (ret == 0)
+                    {
+                        isPauseRecording = false;
+                        btnPauseRecorder.setText("恢复录像");
+                    }
+                    else if(ret == 3)
+                    {
+                        Log.e(TAG, "Pause recorder failed, please re-try again..");
+                    }
+                    else
+                    {
+                        Log.e(TAG, "Pause recorder failed..");
+                    }
+                }
+                else
+                {
+                    int ret = libPublisher.SmartPublisherPauseRecorder(publisherHandle, 0);
+
+                    if (ret == 0)
+                    {
+                        isPauseRecording = true;
+                        btnPauseRecorder.setText("暂停录像");
+                    }
+                    else if(ret == 3)
+                    {
+                        Log.e(TAG, "Resume recorder failed, please re-try again..");
+                    }
+                    else
+                    {
+                        Log.e(TAG, "Resume recorder failed..");
+                    }
+                }
+            }
         }
     }
 
